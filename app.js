@@ -1,13 +1,16 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const contactsRouter = require('./routes/api/contacts');
-const { Contact, listContacts, getContactById, removeContact, addContact, updateContact, updateStatusContact } = require('./models/contacts'); 
+
+const userRoutes = require('./routes/api/user');
+const { Contact } = require('./models/contacts');
 require('dotenv').config();
 
 const app = express();
 
 app.use(express.json());
-app.use('/api/contacts', contactsRouter);
+
+
+app.use('/api/users', userRoutes);
 
 const { DB_HOST, PORT = 3000 } = process.env;
 
@@ -22,10 +25,10 @@ mongoose.connect(DB_HOST)
     console.error("Database connection error:", error);
     console.error("Database connection error:", DB_HOST);
     process.exit(1);
-
   });
 
-  app.patch('/api/contacts/:contactId/favorite', async (req, res) => {
+// Move this route to the contacts router
+app.patch('/api/contacts/:contactId/favorite', async (req, res) => {
   const { contactId } = req.params;
   const { favorite } = req.body;
 
@@ -34,7 +37,11 @@ mongoose.connect(DB_HOST)
   }
 
   try {
-    const updatedContact = await updateStatusContact(contactId, { favorite });
+    const updatedContact = await Contact.findByIdAndUpdate(
+      contactId,
+      { favorite },
+      { new: true }
+    );
     if (!updatedContact) {
       return res.status(404).json({ message: "Not found" });
     }
@@ -43,3 +50,5 @@ mongoose.connect(DB_HOST)
     res.status(500).json({ message: "Server error" });
   }
 });
+
+module.exports = app;
