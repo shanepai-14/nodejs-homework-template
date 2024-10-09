@@ -6,12 +6,30 @@ const User = require('../../models/user');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
 const auth = require('../../middleware/auth');
+const multer = require('multer');
+const path = require('path');
+const { Jimp } = require("jimp");
+const gravatar = require('gravatar');
+const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
 
-// Validation schema for user signup
-const userSchema = Joi.object({
-  email: Joi.string().email().required(),
-  password: Joi.string().min(6).required(),
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const avatarDir = path.join(__dirname, '..', '..', 'public', 'avatars');
+    console.log(`Avatar directory: ${avatarDir}`);
+    if (!fs.existsSync(avatarDir)) {
+      fs.mkdirSync(avatarDir, { recursive: true });
+    }
+    cb(null, avatarDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, req.user._id + '-' + uniqueSuffix + path.extname(file.originalname));
+  },
 });
+
+const upload = multer({ storage });
 
 // User signup endpoint
 router.post('/signup', async (req, res) => {
@@ -36,6 +54,7 @@ router.post('/signup', async (req, res) => {
       user: {
         email: user.email,
         subscription: user.subscription,
+        avatarURL: user.avatarURL,
       },
     });
   } catch (err) {
@@ -101,4 +120,29 @@ router.post('/login', async (req, res) => {
     });
   });
 
+  router.patch('/avatars', auth, upload.single('avatar'), (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: 'Avatar file is required' });
+      }
+  
+      console.log('Uploaded file:', req.file);
+  
+      const avatarURL = `/avatars/${req.file.filename}`;
+  
+      User.findByIdAndUpdate(req.user._id, { avatarURL })
+        .then(() => {
+          console.log(`Avatar URL updated for user: ${req.user._id}`);
+          res.json({ avatarURL });
+        })
+        .catch(error => {
+          console.error('Error updating user:', error);
+          res.status(500).json({ message: 'Failed to update user', error: error.toString() });
+        });
+  
+    } catch (error) {
+      console.error('Error in avatar update:', error);
+      res.status(500).json({ message: 'Server error', error: error.toString() });
+    }
+  });
 module.exports = router;
