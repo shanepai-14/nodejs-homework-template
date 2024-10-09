@@ -1,107 +1,45 @@
 const express = require('express');
-const morgan = require('morgan');
-const cors = require('cors');
-const contacts = require('./routes/api/contacts'); // Import the contacts module
+const mongoose = require('mongoose');
+const contactsRouter = require('./routes/api/contacts');
+const { Contact, listContacts, getContactById, removeContact, addContact, updateContact, updateStatusContact } = require('./models/contacts'); 
+require('dotenv').config();
 
 const app = express();
 
-// Middleware
-app.use(morgan('tiny'));
-app.use(cors());
-app.use(express.json()); // To parse incoming JSON data
+app.use(express.json());
+app.use('/api/contacts', contactsRouter);
 
+const { DB_HOST, PORT = 3000 } = process.env;
 
-const Joi = require('joi');
+mongoose.connect(DB_HOST)
+  .then(() => {
+    console.log("Database connection successful");
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Database connection error:", error);
+    console.error("Database connection error:", DB_HOST);
+    process.exit(1);
 
-// Define validation schemas
-const contactSchema = Joi.object({
-  name: Joi.string().required(),
-  email: Joi.string().email().required(),
-  phone: Joi.string().required()
-});
+  });
 
+  app.patch('/api/contacts/:contactId/favorite', async (req, res) => {
+  const { contactId } = req.params;
+  const { favorite } = req.body;
 
-// Routes
-app.get('/api/contacts', async (req, res) => {
+  if (favorite === undefined) {
+    return res.status(400).json({ message: "missing field favorite" });
+  }
 
   try {
-    const contactList = await contacts.listContacts();
-    res.status(200).json(contactList);
-  } catch (error) {
-    res.status(500).json({ message: error });
-  }
-});
-
-app.get('/api/contacts/:id', async (req, res) => {
-
-
-
-  const { id } = req.params;
-  try {
-    const contact = await contacts.getById(id);
-    if (!contact) {
-      return res.status(404).json({ message: 'Not found' });
-    }
-    res.status(200).json(contact);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-app.post('/api/contacts', async (req, res) => {
-
-  const { error } = contactSchema.validate(req.body);
-  if (error) {
-    return res.status(400).json({ message: 'Missing required fields' });
-  }
-
-
-  const { name, email, phone } = req.body;
-  if (!name || !email || !phone) {
-    return res.status(400).json({ message: 'Missing required name field' });
-  }
-  try {
-    const newContact = await contacts.addContact({ name, email, phone });
-    res.status(201).json(newContact);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-app.delete('/api/contacts/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const contact = await contacts.removeContact(id);
-    if (!contact) {
-      return res.status(404).json({ message: 'Not found' });
-    }
-    res.status(200).json({ message: 'Contact deleted' });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-app.put('/api/contacts/:id', async (req, res) => {
-
-  const { error } = contactSchema.validate(req.body);
-  if (error) {
-    return res.status(400).json({ message: 'Missing fields' });
-  }
-
-  const { id } = req.params;
-  const { name, email, phone } = req.body;
-  if (!name && !email && !phone) {
-    return res.status(400).json({ message: 'Missing fields' });
-  }
-  try {
-    const updatedContact = await contacts.updateContact(id, { name, email, phone });
+    const updatedContact = await updateStatusContact(contactId, { favorite });
     if (!updatedContact) {
-      return res.status(404).json({ message: 'Not found' });
+      return res.status(404).json({ message: "Not found" });
     }
     res.status(200).json(updatedContact);
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: "Server error" });
   }
 });
-
-module.exports = app;

@@ -1,48 +1,88 @@
-const fs = require('fs').promises;
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+const express = require('express');
+const router = express.Router();
+const { Contact  } = require('../../models/contacts');
 
-const contactsPath = path.join(__dirname, 'db', 'contacts.json');
+// Get all contacts
+router.get('/', async (req, res) => {
+  try {
+    const contacts = await Contact.find();
+    res.json(contacts);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
 
-async function listContacts() {
-  const data = await fs.readFile(contactsPath, 'utf8');
-  return JSON.parse(data);
+// Get a single contact
+router.get('/:id', getContact, (req, res) => {
+  res.json(res.contact);
+});
+
+// Create a contact
+router.post('/', async (req, res) => {
+  const contact = new Contact(req.body);
+  try {
+    const newContact = await contact.save();
+    res.status(201).json(newContact);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Update a contact
+router.put('/:id', getContact, async (req, res) => {
+  if (req.body.name != null) {
+    res.contact.name = req.body.name;
+  }
+  if (req.body.email != null) {
+    res.contact.email = req.body.email;
+  }
+  if (req.body.phone != null) {
+    res.contact.phone = req.body.phone;
+  }
+  try {
+    const updatedContact = await res.contact.save();
+    res.json(updatedContact);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Delete a contact
+router.delete('/:id', getContact, async (req, res) => {
+  try {
+    await res.contact.remove();
+    res.json({ message: 'Contact deleted' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Update favorite status
+router.patch('/:id/favorite', getContact, async (req, res) => {
+  if (req.body.favorite == null) {
+    return res.status(400).json({ message: "Missing field favorite" });
+  }
+  res.contact.favorite = req.body.favorite;
+  try {
+    const updatedContact = await res.contact.save();
+    res.json(updatedContact);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+async function getContact(req, res, next) {
+  try {
+    const contact = await Contact.findById(req.params.id);
+    if (contact == null) {
+      return res.status(404).json({ message: 'Contact not found' });
+    }
+    res.contact = contact;
+    next();
+  } catch (error) {
+    
+    return res.status(500).json({ message: error.message + req.params.id + "eerror" });
+  }
 }
 
-async function getById(contactId) {
-  const contacts = await listContacts();
-  return contacts.find(contact => contact.id === contactId);
-}
-
-async function addContact({ name, email, phone }) {
-  const contacts = await listContacts();
-  const newContact = { id: uuidv4(), name, email, phone };
-  contacts.push(newContact);
-  await fs.writeFile(contactsPath, JSON.stringify(contacts, null, 2));
-  return newContact;
-}
-
-async function removeContact(contactId) {
-  const contacts = await listContacts();
-  const filteredContacts = contacts.filter(contact => contact.id !== contactId);
-  if (contacts.length === filteredContacts.length) return null; // Contact not found
-  await fs.writeFile(contactsPath, JSON.stringify(filteredContacts, null, 2));
-  return true;
-}
-
-async function updateContact(id, updates) {
-  const contacts = await listContacts();
-  const index = contacts.findIndex(contact => contact.id === id);
-  if (index === -1) return null; // Contact not found
-  contacts[index] = { ...contacts[index], ...updates };
-  await fs.writeFile(contactsPath, JSON.stringify(contacts, null, 2));
-  return contacts[index];
-}
-
-module.exports = {
-  listContacts,
-  getById,
-  addContact,
-  removeContact,
-  updateContact
-};
+module.exports = router;
