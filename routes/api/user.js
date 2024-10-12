@@ -8,11 +8,21 @@ const router = express.Router();
 const auth = require('../../middleware/auth');
 const multer = require('multer');
 const path = require('path');
-const { Jimp } = require("jimp");
 const gravatar = require('gravatar');
-const { v4: uuidv4 } = require('uuid');
+const { v4: uuid4 } = require('uuid');
 const fs = require('fs');
+const { sendEmail } = require("../../helpers/sendEmail");
+const { httpError } = require("../../helpers/httpError");
 
+const emailValidation = Joi.object({
+  email: Joi.string()
+    .email({ minDomainSegments: 2, tlds: { allow: ["com", "net"] } })
+    .required()
+    .messages({
+      "any.required": "Missing required email field",
+      "string.email": "Invalid email format",
+    }),
+});
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -45,16 +55,24 @@ router.post('/signup', async (req, res) => {
     if (existingUser) {
       return res.status(409).send({ message: 'Email in use' });
     }
-
+    const verificationToken = uuid4();
+    const avatarURL = gravatar.url(email, { protocol: "http" });
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({ email, password: hashedPassword });
+    const user = new User({ email, password: hashedPassword , avatarURL, verificationToken, });
     await user.save();
+
+    await sendEmail({
+      to: email,
+      subject: "Action Required: Verify Your Email",
+      html: `<a target="_blank" href="http://localhost:${PORT}/api/users/verify/${verificationToken}">Click to verify email</a>`,
+    });
 
     res.status(201).send({
       user: {
         email: user.email,
         subscription: user.subscription,
         avatarURL: user.avatarURL,
+        verificationToken,
       },
     });
   } catch (err) {
@@ -145,4 +163,60 @@ router.post('/login', async (req, res) => {
       res.status(500).json({ message: 'Server error', error: error.toString() });
     }
   });
+
+  router.get('/verify/:verificationToken', async (req, res, next) => {
+    try {
+      const { verificationToken } = req.params;
+  
+      const user = await User.findOne({ verificationToken });
+  
+      if (!user) {
+        throw httpError(404, "User not found");
+      }
+  
+      await User.findByIdAndUpdate(user._id, {
+        verify: true,
+        verificationToken: null,
+      });
+  
+      res.json({
+        message: "Verification successful",
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+  
+  // Resend Verification Email
+  router.post('/verify', auth, async (req, res, next) => {
+    try {
+      const { email } = req.body;
+  
+      const { error } = emailValidation.validate(req.body);
+      if (error) {
+        throw httpError(400, error.message);
+      }
+  
+      const user = await User.findOne({ email });
+  
+      if (!user) {
+        throw httpError(404, "The provided email address could not be found");
+      }
+  
+      if (user.verify) {
+        throw httpError(400, "Verification has already been passed");
+      }
+  
+      await sendEmail({
+        to: email,
+        subject: "Action Required: Verify Your Email",
+        html: `<a target="_blank" href="${process.env.BASE_URL}/api/users/verify/${user.verificationToken}">Click to verify email</a>`,
+      });
+  
+      res.json({ message: "Verification email sent" });
+    } catch (error) {
+      next(error);
+    }
+  });
+  
 module.exports = router;
